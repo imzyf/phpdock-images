@@ -1,0 +1,74 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches:
+      - 'main'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php_version: ["8.5"]
+        profile:
+          # - name: development
+          #   file: .env.development
+          - name: production
+            file: .env.production
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+      -
+        # each env file is NAME=value per line, matching the Dockerfile's
+        # ARG names 1:1 — pass it straight through as build-args.
+        name: Load build args from ${{ matrix.profile.file }}
+        id: build-args
+        run: |
+          {
+            echo 'args<<EOF'
+            cat "${{ matrix.profile.file }}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+      -
+        # production also gets tagged as the bare php_version (e.g. 8.5),
+        # so "yifans/php-fpm:8.5" always means the production build.
+        name: Compute tags
+        id: tags
+        run: |
+          tags="yifans/php-fpm:${{ matrix.php_version }}-${{ matrix.profile.name }}"
+          if [ "${{ matrix.profile.name }}" = "production" ]; then
+            tags="${tags}
+          yifans/php-fpm:${{ matrix.php_version }}"
+          fi
+          {
+            echo 'list<<EOF'
+            echo "$tags"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+      -
+        name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      -
+        name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      -
+        name: Build and push Docker images
+        uses: docker/build-push-action@v6
+        with:
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ (github.repository == 'imzyf/php-fpm-image') && (github.ref == 'refs/heads/main') }}
+          tags: ${{ steps.tags.outputs.list }}
+          build-args: |
+            ${{ steps.build-args.outputs.args }}
+            LARADOCK_PHP_VERSION=${{ matrix.php_version }}
