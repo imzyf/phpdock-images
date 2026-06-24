@@ -1,11 +1,6 @@
-name: Docker Image CI
+name: laradock-image
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches:
-      - 'main'
   workflow_dispatch: {}
 
 jobs:
@@ -14,42 +9,42 @@ jobs:
     strategy:
       matrix:
         php_version: ["8.5"]
-        profile:
-          # - name: development
-          #   file: .env.development
-          - name: production
-            file: .env.production
+        image: [php-fpm, php-worker, workspace]
     steps:
       -
         name: Checkout
         uses: actions/checkout@v4
       -
-        # each env file is NAME=value per line, matching the Dockerfile's
-        # ARG names 1:1 — pass it straight through as build-args.
-        name: Load build args from ${{ matrix.profile.file }}
+        # .env.laradock holds every image's ARG defaults (merged from all three
+        # Dockerfiles); .env.laradock.preference overrides a subset of them with
+        # this project's chosen values. Merge the two (preference wins) and pass
+        # the result straight through as build-args.
+        name: Merge build args from .env.laradock + .env.laradock.preference
         id: build-args
         run: |
+          declare -A args
+          for f in .env.laradock .env.laradock.preference; do
+            while IFS= read -r line; do
+              line="${line%%#*}"
+              line="$(printf '%s' "${line}" | sed -e 's/[[:space:]]*$//')"
+              [ -z "${line}" ] && continue
+              name="${line%%=*}"
+              value="${line#*=}"
+              args["${name}"]="${value}"
+            done < "${f}"
+          done
           {
             echo 'args<<EOF'
-            cat "${{ matrix.profile.file }}"
+            for name in "${!args[@]}"; do
+              echo "${name}=${args[${name}]}"
+            done
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
       -
-        # production also gets tagged as the bare php_version (e.g. 8.5),
-        # so "yifans/php-fpm:8.5" always means the production build.
-        name: Compute tags
+        name: Compute tag
         id: tags
         run: |
-          tags="yifans/php-fpm:${{ matrix.php_version }}-${{ matrix.profile.name }}"
-          if [ "${{ matrix.profile.name }}" = "production" ]; then
-            tags="${tags}
-          yifans/php-fpm:${{ matrix.php_version }}"
-          fi
-          {
-            echo 'list<<EOF'
-            echo "$tags"
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          echo "tag=yifans/phpdock:${{ matrix.php_version }}-${{ matrix.image }}" >> "$GITHUB_OUTPUT"
       -
         name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -66,10 +61,11 @@ jobs:
         name: Build and push Docker images
         uses: docker/build-push-action@v6
         with:
-          file: Dockerfile
+          context: ${{ matrix.image }}
+          file: ${{ matrix.image }}/Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: ${{ (github.repository == 'imzyf/php-fpm-image') && (github.ref == 'refs/heads/main') }}
-          tags: ${{ steps.tags.outputs.list }}
+          push: ${{ github.repository == 'imzyf/phpdock-images' }}
+          tags: ${{ steps.tags.outputs.tag }}
           build-args: |
             ${{ steps.build-args.outputs.args }}
             LARADOCK_PHP_VERSION=${{ matrix.php_version }}
