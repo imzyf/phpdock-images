@@ -20,19 +20,19 @@ After syncing, diff `.env.development` / `.env.production` against `.env.example
 ## Build locally
 
 ```bash
-build_args=()
-while IFS= read -r line; do
-  [[ -z "$line" ]] && continue
-  build_args+=(--build-arg "$line")
-done < .env.production
-
-docker buildx build "${build_args[@]}" --build-arg LARADOCK_PHP_VERSION=8.5 -t yifans/php-fpm:test --load .
+make build                       # PHP_VERSION=8.5 PROFILE=production
+make build PROFILE=development
+make test                        # build + smoke-check (php -v, pgsql, redis)
 ```
 
 ## CI
 
-`.github/workflows/dockerimage.yml` builds PHP `8.5` for `linux/amd64,linux/arm64`, using `.env.development` / `.env.production` as build-args. Tags pushed to Docker Hub:
+`.github/workflows/dockerimage.yml` builds PHP `8.5` for `linux/amd64,linux/arm64`, using `.env.production` (and `.env.development`, once uncommented in the matrix) as build-args.
 
-- `8.5-development`
+Triggers: push/PR to `main`, or manually via the "Run workflow" button (`workflow_dispatch`) on the [Actions tab](https://github.com/imzyf/php-fpm-image/actions/workflows/dockerimage.yml).
+
+Tags pushed to Docker Hub:
+
 - `8.5-production`
 - `8.5` (alias of `8.5-production`)
+- `8.5-development` (once enabled)
