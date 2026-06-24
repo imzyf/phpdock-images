@@ -1,7 +1,7 @@
 # My Laradock-based Docker Images
 
-- [GitHub php-fpm-image](https://github.com/imzyf/php-fpm-image/)
-- [GitHub php-fpm-image - actions](https://github.com/imzyf/php-fpm-image/actions/)
+- [GitHub phpdock-images](https://github.com/imzyf/phpdock-images/)
+- [GitHub phpdock-images - actions](https://github.com/imzyf/phpdock-images/actions/)
 - [DockerHub phpdock - tags](https://hub.docker.com/repository/registry-1.docker.io/yifans/phpdock/tags?page=1&ordering=last_updated)
 
 ## Origin
@@ -36,9 +36,9 @@ Build args come from `.env.laradock` merged with `.env.laradock.preference` (the
 
 ## CI
 
-`.github/workflows/dockerimage.yml` (workflow name `laradock-image`) builds PHP `8.5` for `linux/amd64,linux/arm64`, across all three images (`php-fpm`, `php-worker`, `workspace`), using the same `.env.laradock` + `.env.laradock.preference` merge as the Makefile for build-args.
+`.github/workflows/laradock-image.yml` (workflow name `laradock-image`) builds PHP `8.5` for `linux/amd64,linux/arm64`, across all three images (`php-fpm`, `php-worker`, `workspace`), using the same `.env.laradock` + `.env.laradock.preference` merge as the Makefile for build-args.
 
-Triggers: manual only, via the "Run workflow" button (`workflow_dispatch`) on the [Actions tab](https://github.com/imzyf/php-fpm-image/actions/workflows/dockerimage.yml).
+Triggers: weekly on a schedule (`0 0 * * 0`, Sunday 00:00 UTC), or manually via the "Run workflow" button (`workflow_dispatch`) on the [Actions tab](https://github.com/imzyf/phpdock-images/actions/workflows/laradock-image.yml).
 
 Tags pushed to Docker Hub:
 
