@@ -4,25 +4,23 @@ IMAGE       ?= yifans/phpdock:local-$(PHP_VERSION)-$(IMAGE_NAME)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help sync env build test
+.PHONY: help sync build-local test-local
 
 help:
 	@echo "Targets:"
-	@echo "  sync   - pull latest files from laradock/laradock"
-	@echo "  env    - regenerate .env.laradock from the Dockerfiles' ARGs"
-	@echo "  build  - build local image (PHP_VERSION=$(PHP_VERSION) IMAGE_NAME=$(IMAGE_NAME): php-fpm|php-worker|workspace)"
-	@echo "  test   - build, then smoke-test the image"
+	@echo "  sync         - pull latest files from laradock/laradock"
+	@echo "  build-local  - build ONE image locally, selected via IMAGE_NAME=$(IMAGE_NAME) (php-fpm|php-worker|workspace), PHP_VERSION=$(PHP_VERSION)"
+	@echo "  test-local   - build-local, then smoke-test that image"
 
 sync:
 	bin/sync-upstream.sh
-
-env:
+	bin/prune-php-ini.sh
 	bin/generate-env.sh
 
 # .env.laradock holds every image's ARG defaults; .env.laradock.preference
 # overrides a subset of them with this project's chosen values (concatenated
 # after, so its --build-arg occurrences win on conflicting names).
-build:
+build-local:
 	@build_args=""; \
 	for f in .env.laradock .env.laradock.preference; do \
 		while IFS= read -r line; do \
@@ -34,7 +32,7 @@ build:
 	done; \
 	docker buildx build $$build_args --build-arg LARADOCK_PHP_VERSION=$(PHP_VERSION) -f $(IMAGE_NAME)/Dockerfile -t $(IMAGE) --load $(IMAGE_NAME)
 
-test: build
+test-local: build-local
 	docker run --rm $(IMAGE) php -v
 ifeq ($(IMAGE_NAME),php-fpm)
 	docker run --rm $(IMAGE) php -m | grep -qi pgsql && echo "pgsql: ok"

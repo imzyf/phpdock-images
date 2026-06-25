@@ -8,7 +8,7 @@
 
 Three images are mirrored unmodified from [laradock/laradock](https://github.com/laradock/laradock), each into its own top-level directory:
 
-- `php-fpm/` — from laradock's `php-fpm/` (generic `Dockerfile`, parameterized by `LARADOCK_PHP_VERSION`)
+- `php-fpm/` — from laradock's `php-fpm/`
 - `php-worker/` — from laradock's `php-worker/`
 - `workspace/` — from laradock's `workspace/`
 
@@ -26,10 +26,10 @@ After syncing, diff `.env.laradock` against its previous version to pick up any 
 ## Build locally
 
 ```bash
-make build                          # IMAGE_NAME=php-fpm PHP_VERSION=8.5
-make build IMAGE_NAME=php-worker
-make build IMAGE_NAME=workspace
-make test                           # build + smoke-check (php -v, and pgsql/redis when IMAGE_NAME=php-fpm)
+make build-local                          # IMAGE_NAME=php-fpm PHP_VERSION=8.5
+make build-local IMAGE_NAME=php-worker
+make build-local IMAGE_NAME=workspace
+make test-local                           # build-local + smoke-check (php -v, and pgsql/redis when IMAGE_NAME=php-fpm)
 ```
 
 Build args come from `.env.laradock` merged with `.env.laradock.preference` (the latter wins on conflicting names).

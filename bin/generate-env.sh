@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Generate a single root .env.laradock from the `ARG` lines declared in
-# every image's Dockerfile (php-fpm/, php-worker/, workspace/).
+# every image's Dockerfile (see IMAGES in bin/.sync-config.sh).
 #
 # Overwrites .env.laradock with one line per ARG: NAME=default, grouped
 # under a "# ===== <image> =====" heading per image. An ARG shared by
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
-IMAGES=(php-fpm php-worker workspace)
+source "$(dirname "${BASH_SOURCE[0]}")/.sync-config.sh"
 out_env="${ROOT_DIR}/.env.laradock"
 
 out="$(mktemp)"
