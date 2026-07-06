@@ -1,0 +1,38 @@
+name: sync-upstream
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+      -
+        name: Sync files from laradock/laradock
+        run: make sync
+      -
+        # Creates (or updates) a PR only when `make sync` produced a diff;
+        # a no-op otherwise. Uses the default GITHUB_TOKEN, so the PR it
+        # opens will NOT trigger other workflows (e.g. laradock-image) —
+        # merge it by hand to run the build.
+        name: Create pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "Sync files from laradock/laradock upstream"
+          branch: sync/laradock-upstream
+          delete-branch: true
+          title: "Sync files from laradock/laradock upstream"
+          body: |
+            Automated `make sync` picked up changes from
+            [laradock/laradock](https://github.com/laradock/laradock) upstream.
+
+            Review the diff before merging.
