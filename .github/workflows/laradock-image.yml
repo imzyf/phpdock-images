@@ -17,29 +17,14 @@ jobs:
         name: Checkout
         uses: actions/checkout@v4
       -
-        # .env.laradock holds every image's ARG defaults (merged from all three
-        # Dockerfiles); .env.laradock.preference overrides a subset of them with
-        # this project's chosen values. Merge the two (preference wins) and pass
-        # the result straight through as build-args.
+        # bin/build-args.sh merges .env.laradock + .env.laradock.preference into
+        # deduped NAME=value lines (preference wins); same output make consumes.
         name: Merge build args from .env.laradock + .env.laradock.preference
         id: build-args
         run: |
-          declare -A args
-          for f in .env.laradock .env.laradock.preference; do
-            while IFS= read -r line; do
-              line="${line%%#*}"
-              line="$(printf '%s' "${line}" | sed -e 's/[[:space:]]*$//')"
-              [ -z "${line}" ] && continue
-              name="${line%%=*}"
-              value="${line#*=}"
-              args["${name}"]="${value}"
-            done < "${f}"
-          done
           {
             echo 'args<<EOF'
-            for name in "${!args[@]}"; do
-              echo "${name}=${args[${name}]}"
-            done
+            bin/build-args.sh
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
       -

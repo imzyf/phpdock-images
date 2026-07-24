@@ -1,38 +1,41 @@
+# Array + process substitution below need bash (macOS /bin/sh is not enough).
+SHELL := bash
+
 PHP_VERSION ?= 8.5
 IMAGE_NAME  ?= php-fpm
 IMAGE       ?= yifans/phpdock:local-$(PHP_VERSION)-$(IMAGE_NAME)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help sync build-local test-local
+.PHONY: help sync sync-force build-local test-local
 
-help:
-	@echo "Targets:"
-	@echo "  sync         - pull latest files from laradock/laradock"
-	@echo "  build-local  - build ONE image locally, selected via IMAGE_NAME=$(IMAGE_NAME) (php-fpm|php-worker|workspace), PHP_VERSION=$(PHP_VERSION)"
-	@echo "  test-local   - build-local, then smoke-test that image"
+help: ## Show this help
+	@awk 'BEGIN {FS = ":.*?## "} \
+		/^##@/ {printf "\n\033[1m%s\033[0m\n", substr($$0, 5); next} \
+		/^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' \
+		$(MAKEFILE_LIST)
 
-sync:
+##@ Sync
+
+sync: ## Pull latest files from upstream, then regenerate .env.laradock
 	bin/sync-upstream.sh
-	bin/prune-php-ini.sh
-	bin/generate-env.sh
+	bin/extract-env.sh
 
-# .env.laradock holds every image's ARG defaults; .env.laradock.preference
-# overrides a subset of them with this project's chosen values (concatenated
-# after, so its --build-arg occurrences win on conflicting names).
-build-local:
-	@build_args=""; \
-	for f in .env.laradock .env.laradock.preference; do \
-		while IFS= read -r line; do \
-			line="$${line%%#*}"; \
-			line="$$(printf '%s' "$$line" | sed -e 's/[[:space:]]*$$//')"; \
-			[ -z "$$line" ] && continue; \
-			build_args="$$build_args --build-arg $$line"; \
-		done < $$f; \
-	done; \
-	docker buildx build $$build_args --build-arg LARADOCK_PHP_VERSION=$(PHP_VERSION) -f $(IMAGE_NAME)/Dockerfile -t $(IMAGE) --load $(IMAGE_NAME)
+sync-force: ## Sync from upstream, ignoring the clone cache
+	LCC_SYNC_CACHE_TTL=0 make sync
 
-test-local: build-local
+##@ Build
+
+# bin/build-args.sh merges .env.laradock + .env.laradock.preference into deduped
+# NAME=value lines (same output CI consumes). Read into an array so values with
+# spaces (e.g. ADDITIONAL_LOCALES) survive as a single --build-arg token.
+build-local: ## Build ONE image locally (IMAGE_NAME=php-fpm|php-worker|workspace, PHP_VERSION=)
+	@extra=(); \
+	while IFS= read -r line; do extra+=(--build-arg "$$line"); done \
+		< <(bin/build-args.sh); \
+	docker buildx build "$${extra[@]}" --build-arg LARADOCK_PHP_VERSION=$(PHP_VERSION) -f $(IMAGE_NAME)/Dockerfile -t $(IMAGE) --load $(IMAGE_NAME)
+
+test-local: build-local ## Build-local, then smoke-test that image
 	docker run --rm $(IMAGE) php -v
 ifeq ($(IMAGE_NAME),php-fpm)
 	docker run --rm $(IMAGE) php -m | grep -qi pgsql && echo "pgsql: ok"
