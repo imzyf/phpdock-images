@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 #
 # bin/sync-upstream.sh 的共享配置（被 source 引入，而非执行）。
+#
+# 变量都给 source 方用，单独 lint 这个文件必然报未使用。
+# shellcheck disable=SC2034
 
 # 按需修改以下变量以匹配你的上游仓库。
 UPSTREAM_REPO="https://github.com/laradock/laradock.git"

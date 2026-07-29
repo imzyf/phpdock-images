@@ -10,13 +10,21 @@ IMAGE       ?= yifans/phpdock:local-$(PHP_VERSION)-$(IMAGE_NAME)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help sync sync-force build-local test-local
+SHELL_SCRIPTS := bin/.sync-config.sh $(wildcard bin/*.sh)
+
+.PHONY: help lint sync sync-force build-local test-local
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} \
 		/^##@/ {printf "\n\033[1m%s\033[0m\n", substr($$0, 5); next} \
 		/^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' \
 		$(MAKEFILE_LIST)
+
+##@ Lint
+
+# -x 跟进 source 的文件；bin/*.sh 匹配不到点开头的 .sync-config.sh，单独列出。
+lint: ## Run shellcheck over every shell script
+	shellcheck -x $(SHELL_SCRIPTS)
 
 ##@ Sync
 
