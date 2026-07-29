@@ -2,12 +2,23 @@ name: laradock-image
 
 on:
   workflow_dispatch: {}
-  schedule:
-    - cron: "0 0 * * 0"
+  # 开放调用，让 sync-upstream 能验证自己开的 PR 分支。
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build. Empty means the default checkout.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # 只有主仓库自己的手动运行才推送镜像；workflow_call 验证只构建、不发布。
+      PUBLISH: ${{ github.repository == 'imzyf/phpdock-images' && inputs.ref == '' }}
     strategy:
       matrix:
         php_version: ["8.5"]
@@ -16,9 +27,11 @@ jobs:
       -
         name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       -
-        # bin/build-args.sh merges .env.laradock + .env.laradock.preference into
-        # deduped NAME=value lines (preference wins); same output make consumes.
+        # bin/build-args.sh 把 .env.laradock 与 .env.laradock.preference 合并成
+        # 去重的 NAME=value 行（preference 胜出），与 make 消费的是同一份输出。
         name: Merge build args from .env.laradock + .env.laradock.preference
         id: build-args
         run: |
@@ -33,13 +46,16 @@ jobs:
         run: |
           echo "tag=yifans/phpdock:${{ matrix.php_version }}-${{ matrix.image }}" >> "$GITHUB_OUTPUT"
       -
+        # 只有 arm64 那一路需要它，而验证运行不构建 arm64。
         name: Set up QEMU
+        if: env.PUBLISH == 'true'
         uses: docker/setup-qemu-action@v3
       -
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       -
         name: Login to Docker Hub
+        if: env.PUBLISH == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -50,8 +66,8 @@ jobs:
         with:
           context: ${{ matrix.image }}
           file: ${{ matrix.image }}/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.repository == 'imzyf/phpdock-images' }}
+          platforms: ${{ env.PUBLISH == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          push: ${{ env.PUBLISH == 'true' }}
           tags: ${{ steps.tags.outputs.tag }}
           build-args: |
             ${{ steps.build-args.outputs.args }}

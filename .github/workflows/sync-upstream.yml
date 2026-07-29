@@ -12,22 +12,41 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    outputs:
+      # 本次 PR 的处理结果：created / updated / closed / none（无 diff 时为空）。
+      pr-operation: ${{ steps.cpr.outputs.pull-request-operation }}
+      # 同步 PR 分支的 head commit（不是上游的 commit），交给 validate
+      # 精确构建这一版，避免和后续 push 抢跑。
+      pr-head-sha: ${{ steps.cpr.outputs.pull-request-head-sha }}
     steps:
       -
+        # 默认浅克隆（fetch-depth: 1）就够：make sync 只读工作区文件，
+        # create-pull-request 也只从当前 HEAD 开新分支。
         name: Checkout
         uses: actions/checkout@v4
       -
+        # CI 每次都是干净 runner，克隆缓存必然是冷的，用 sync-force 把这点写明。
+        # 同步完顺手记下上游 commit，供 PR 正文追溯版本。
         name: Sync files from laradock/laradock
-        run: make sync
+        id: sync
+        # upstream-commit 是 laradock 那边的 commit，只用于写进 PR 正文追溯版本；
+        # 要构建的是本仓库同步分支的 pr-head-sha，两者是不同的东西。
+        run: |
+          make sync-force
+          echo "upstream-commit=$(git -C bin/.cache/upstream rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       -
-        # Creates (or updates) a PR only when `make sync` produced a diff;
-        # a no-op otherwise. Uses the default GITHUB_TOKEN, so the PR it
-        # opens will NOT trigger other workflows (e.g. laradock-image) —
-        # merge it by hand to run the build.
+        # 只有 make sync 产生 diff 时才开（或更新）PR，否则什么都不做。
+        # 用的是默认 GITHUB_TOKEN，所以这个 PR 不产生任何事件；
+        # laradock-image 也已改成只手动触发，验证全靠下面的 validate job。
         name: Create pull request
+        # 起 id 是为了把它的输出提到 job outputs，供 validate 判断与取 SHA。
+        id: cpr
         uses: peter-evans/create-pull-request@v7
         with:
-          commit-message: "Sync files from laradock/laradock upstream"
+          commit-message: |
+            Sync files from laradock/laradock upstream
+
+            Upstream commit: ${{ steps.sync.outputs.upstream-commit }}
           branch: sync/laradock-upstream
           delete-branch: true
           title: "Sync files from laradock/laradock upstream"
@@ -35,4 +54,21 @@ jobs:
             Automated `make sync` picked up changes from
             [laradock/laradock](https://github.com/laradock/laradock) upstream.
 
-            Review the diff before merging.
+            Synced up to [`${{ steps.sync.outputs.upstream-commit }}`](https://github.com/laradock/laradock/commit/${{ steps.sync.outputs.upstream-commit }}).
+
+            The `sync-upstream` run that opened this PR also builds every image
+            from this branch — check that it passed, and review the diff, before
+            merging. Merging does not publish: run `laradock-image` by hand
+            to push the new tags.
+
+  # 上面那个 PR 自己触发不了 laradock-image，而上游改动恰恰落在 Dockerfile ——
+  # 最容易出事的地方。在这里构建同步分支，让坏掉的同步当场报错，
+  # 而不是等到合并之后才发现。
+  validate:
+    needs: sync
+    # 没有上游 diff 时跳过；上一个 PR 被关掉时也跳过（分支已删，没东西可构建）。
+    if: needs.sync.outputs.pr-operation == 'created' || needs.sync.outputs.pr-operation == 'updated'
+    uses: ./.github/workflows/laradock-image.yml
+    with:
+      # 传递给 laradock-image.yml 的输入参数，指定要构建的 Git ref。
+      ref: ${{ needs.sync.outputs.pr-head-sha }}
