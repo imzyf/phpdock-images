@@ -7,8 +7,12 @@
 17 个扩展。
 
 ```bash
-docker pull yifans/phpdock:8.5-php-fpm   # 另有 8.5-php-worker、8.5-workspace
+docker pull yifans/phpdock:8.5-php-fpm          # 滚动 tag，指向最新一版
+docker pull yifans/phpdock:8.5-php-fpm-202607   # 年月快照，内容不再变动
 ```
+
+另有 `php-worker`、`workspace` 两个镜像，tag 规则相同。生产环境请钉住带年月的
+tag。
 
 Apple Silicon 上不用等 20 分钟本地构建，也不用维护一个 laradock fork。
 

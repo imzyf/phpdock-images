@@ -13,16 +13,23 @@ on:
 permissions:
   contents: read
 
+env:
+  REGISTRY_IMAGE: yifans/phpdock
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # arm64 跑在 GitHub 免费的原生 arm runner 上，不再用 QEMU 模拟（快 5-10 倍）。
+    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     env:
       # 只有主仓库自己的手动运行才推送镜像；workflow_call 验证只构建、不发布。
       PUBLISH: ${{ github.repository == 'imzyf/phpdock-images' && inputs.ref == '' }}
+      PLATFORM_PAIR: ${{ matrix.platform == 'linux/arm64' && 'arm64' || 'amd64' }}
     strategy:
       matrix:
         php_version: ["8.5"]
         image: [php-fpm, php-worker, workspace]
+        # 发布时两个架构各自在原生机器上并行构建；验证运行只需要 amd64。
+        platform: ${{ fromJSON((github.repository == 'imzyf/phpdock-images' && inputs.ref == '') && '["linux/amd64","linux/arm64"]' || '["linux/amd64"]') }}
     steps:
       -
         name: Checkout
@@ -41,16 +48,6 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
       -
-        name: Compute tag
-        id: tags
-        run: |
-          echo "tag=yifans/phpdock:${{ matrix.php_version }}-${{ matrix.image }}" >> "$GITHUB_OUTPUT"
-      -
-        # 只有 arm64 那一路需要它，而验证运行不构建 arm64。
-        name: Set up QEMU
-        if: env.PUBLISH == 'true'
-        uses: docker/setup-qemu-action@v4
-      -
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
       -
@@ -61,14 +58,69 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       -
-        name: Build and push Docker images
+        # 单架构镜像先按 digest 推送（不占用 tag），由 merge job 合成多架构 manifest。
+        name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.image }}
           file: ${{ matrix.image }}/Dockerfile
-          platforms: ${{ env.PUBLISH == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
-          push: ${{ env.PUBLISH == 'true' }}
-          tags: ${{ steps.tags.outputs.tag }}
+          platforms: ${{ matrix.platform }}
+          outputs: ${{ env.PUBLISH == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.REGISTRY_IMAGE) || 'type=cacheonly' }}
           build-args: |
             ${{ steps.build-args.outputs.args }}
             LARADOCK_PHP_VERSION=${{ matrix.php_version }}
+      -
+        # 用空文件的文件名传 digest，merge job 直接 glob 出来拼命令。
+        name: Export digest
+        if: env.PUBLISH == 'true'
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+      -
+        name: Upload digest
+        if: env.PUBLISH == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.php_version }}-${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    # 验证运行不推送任何 digest，没有可合并的东西。
+    if: github.repository == 'imzyf/phpdock-images' && inputs.ref == ''
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php_version: ["8.5"]
+        image: [php-fpm, php-worker, workspace]
+    steps:
+      -
+        name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.php_version }}-${{ matrix.image }}-*
+          merge-multiple: true
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      -
+        name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      -
+        # 两个 tag 指向同一份 manifest：带年月的是不可变快照，不带的滚动指向最新一版。
+        name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          base="${REGISTRY_IMAGE}:${{ matrix.php_version }}-${{ matrix.image }}"
+          dated="${base}-$(date -u +%Y%m)"
+          mapfile -t refs < <(printf "${REGISTRY_IMAGE}@sha256:%s\n" *)
+          docker buildx imagetools create -t "$dated" -t "$base" "${refs[@]}"
+          docker buildx imagetools inspect "$base"

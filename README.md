@@ -7,8 +7,12 @@ Prebuilt multi-arch (`linux/amd64` + `linux/arm64`) PHP 8.5 images from
 ImageMagick and 14 more extensions already compiled in.
 
 ```bash
-docker pull yifans/phpdock:8.5-php-fpm   # also: 8.5-php-worker, 8.5-workspace
+docker pull yifans/phpdock:8.5-php-fpm          # rolling tag, always the newest build
+docker pull yifans/phpdock:8.5-php-fpm-202607   # year-month snapshot, never moves
 ```
+
+`php-worker` and `workspace` follow the same tag scheme. Pin the dated tag in
+production.
 
 No 20-minute local build on Apple Silicon, and no laradock fork to maintain.
 
