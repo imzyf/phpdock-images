@@ -23,7 +23,7 @@ jobs:
         # 默认浅克隆（fetch-depth: 1）就够：make sync 只读工作区文件，
         # create-pull-request 也只从当前 HEAD 开新分支。
         name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       -
         # CI 每次都是干净 runner，克隆缓存必然是冷的，用 sync-force 把这点写明。
         # 同步完顺手记下上游 commit，供 PR 正文追溯版本。
@@ -41,7 +41,7 @@ jobs:
         name: Create pull request
         # 起 id 是为了把它的输出提到 job outputs，供 validate 判断与取 SHA。
         id: cpr
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: |
             Sync files from laradock/laradock upstream

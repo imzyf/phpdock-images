@@ -51,31 +51,47 @@ else
   date +%s > "${CACHE_MARKER}"
 fi
 
-shopt -s dotglob
+# nullglob：空目录下 glob 展开为空而不是留下字面量 "*"，
+# 配合下面的数量检查把「上游目录空了」变成显式报错。
+shopt -s dotglob nullglob
 
-# rsync 排除我们不想复制的文件。rsync 即使在匹配是字面源参数时也会跳过
-# （不仅仅在递归期间），所以这个方法同时覆盖顶级文件和嵌套文件 —— 不需要
-# 单独的 bash glob 匹配。
-exclude_args=()
-for glob in "${EXCLUDE_GLOBS[@]:-}"; do
-  [[ -n "${glob}" ]] && exclude_args+=( --exclude="${glob}" )
-done
+# 按仓库根的相对路径（如 php-fpm/compose.yml）匹配 EXCLUDE_GLOBS。
+# 不能交给 rsync --exclude：这里逐个顶层条目传输，rsync 只看得到
+# 传输根下的名字（aerospike.ini），带 "/" 的模式锚定在传输根，永不命中。
+is_excluded() {
+  local path="$1" glob
+  for glob in "${EXCLUDE_GLOBS[@]:-}"; do
+    [[ -n "${glob}" ]] || continue
+    # shellcheck disable=SC2053 -- 右侧不加引号才按 glob 匹配
+    [[ "${path}" == ${glob} ]] && return 0
+  done
+  return 1
+}
 
 for dir in "${SYNC_DIRS[@]}"; do
   src="${clone_dir}/${dir}"
+  # 配置里的目录在上游没了 = 同步已失效，直接失败，别留下过期的本地副本。
   if [[ ! -d "${src}" ]]; then
-    echo "!! Skipping ${dir} (not found upstream)"
-    continue
+    echo "!! ${dir} not found upstream - update SYNC_DIRS in bin/.sync-config.sh" >&2
+    exit 1
+  fi
+  entries=( "${src}"/* )
+  if (( ${#entries[@]} == 0 )); then
+    echo "!! ${dir} is empty upstream" >&2
+    exit 1
   fi
   echo "==> Refreshing upstream files in ${dir}/ (local-only files preserved)"
   mkdir -p "${ROOT_DIR}/${dir}"
   # 刷新原位置上游拥有的每个条目。仅存在于本地的条目永远不会被触碰。
-  for entry in "${src}"/*; do
+  for entry in "${entries[@]}"; do
     name="$(basename "${entry}")"
+    # 被排除的条目连同本地副本一起放过，不删也不覆盖。
+    if is_excluded "${dir}/${name}"; then
+      echo "  - ${dir}/${name} (excluded)"
+      continue
+    fi
     rm -rf "${ROOT_DIR:?}/${dir}/${name}"
-    # -q：被排除的顶级条目是预期的且无声的；
-    # rsync 否则会为其警告"跳过排除的文件"。
-    rsync -aq "${exclude_args[@]}" "${entry}" "${ROOT_DIR}/${dir}/"
+    rsync -aq "${entry}" "${ROOT_DIR}/${dir}/"
     echo "  - ${dir}/${name}"
   done
 done

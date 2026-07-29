@@ -48,6 +48,12 @@ declare -A seen=()   # 已出现的变量名，用于跨镜像去重
 first=0              # 横幅已写入，之后每个分组前都空一行
 for image in "${SYNC_DIRS[@]}"; do
   dockerfile="${ROOT_DIR}/${image}/Dockerfile"
+  # 进程替换的退出码不受 set -e/pipefail 管，下面的 grep 失败会静默产出空分组，
+  # 所以前置和后置各卡一道，让坏掉的同步当场失败。
+  if [[ ! -f "${dockerfile}" ]]; then
+    echo "!! ${image}/Dockerfile not found - run bin/sync-upstream.sh first" >&2
+    exit 1
+  fi
   section="$(mktemp)"
 
   while IFS= read -r argline; do
@@ -70,6 +76,12 @@ for image in "${SYNC_DIRS[@]}"; do
     fi
   done < <(grep '^ARG ' "${dockerfile}" | sed -E 's/^ARG +//')
 
+  # 全部重名被去重时分组可以为空，但一个 ARG 都没抽到只可能是文件坏了
+  if [[ ! -s "${section}" ]] && ! grep -q '^ARG ' "${dockerfile}"; then
+    echo "!! no ARG lines in ${image}/Dockerfile" >&2
+    exit 1
+  fi
+
   # 该镜像有变量才输出分组标题
   if [[ -s "${section}" ]]; then
     {
@@ -83,4 +95,6 @@ for image in "${SYNC_DIRS[@]}"; do
 done
 
 mv "${out}" "${out_env}"
-echo "==> Wrote $(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "${out_env}") vars to .env.laradock"
+# 先赋值再 echo：写成 echo "$(grep -c ...)" 时 grep 失败会被 echo 的 0 吞掉
+count="$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "${out_env}")"
+echo "==> Wrote ${count} vars to .env.laradock"
