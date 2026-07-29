@@ -20,7 +20,11 @@ SYNC_DIRS=(
 SYNC_FILES=(
 )
 
-# 从同步中排除的本地化文件（rsync --exclude）。
+# 同步时「完全不碰」的路径：既不从上游复制，也不删除本地已有的同名文件。
+# 按仓库根的相对路径匹配，只覆盖 SYNC_DIRS 下的顶级条目（<dir>/<name>）。
+# 因此这里同时用于两件事：
+#   1. 保护本项目手写、且与上游同名的文件（compose.yml、defaults.env）；
+#   2. 剪掉用不到的上游文件（本地不存在的，跳过即保持不存在）。
 EXCLUDE_GLOBS=(
   'php-fpm/aerospike.ini'
   'php-fpm/mysql.ini'

@@ -55,9 +55,9 @@ fi
 # 配合下面的数量检查把「上游目录空了」变成显式报错。
 shopt -s dotglob nullglob
 
-# 按仓库根的相对路径（如 php-fpm/compose.yml）匹配 EXCLUDE_GLOBS。
+# 按仓库根的相对路径（含目录前缀）匹配 EXCLUDE_GLOBS。
 # 不能交给 rsync --exclude：这里逐个顶层条目传输，rsync 只看得到
-# 传输根下的名字（aerospike.ini），带 "/" 的模式锚定在传输根，永不命中。
+# 传输根下的裸文件名，带 "/" 的模式锚定在传输根，永不命中。
 is_excluded() {
   local path="$1" glob
   for glob in "${EXCLUDE_GLOBS[@]}"; do
