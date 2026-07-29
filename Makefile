@@ -30,16 +30,15 @@ sync-force: ## Sync from upstream, ignoring the clone cache
 ##@ Build
 
 # bin/build-args.sh 把 .env.laradock 与 .env.laradock.preference 合并成去重的
-# NAME=value 行（CI 消费的是同一份输出）。读进数组，带空格的值
-# （如 ADDITIONAL_LOCALES）才能作为单个 --build-arg 传下去。
+# NAME=value 行（CI 消费的是同一份输出）。读进数组再整体加 --build-arg= 前缀，
+# 带空格的值（如 ADDITIONAL_LOCALES）才能作为单个参数传下去。
 # 先赋值给变量而不是 < <(...) 读：进程替换的退出码 set -e 看不见，
 # build-args.sh 挂掉时会静默地不带任何 --build-arg 就开始构建。
 build-local: ## Build ONE image locally (IMAGE_NAME=php-fpm|php-worker|workspace, PHP_VERSION=)
 	@set -e; \
 	args="$$(bin/build-args.sh)"; \
-	extra=(); \
-	while IFS= read -r line; do extra+=(--build-arg "$$line"); done <<< "$$args"; \
-	docker buildx build "$${extra[@]}" --build-arg LARADOCK_PHP_VERSION=$(PHP_VERSION) -f $(IMAGE_NAME)/Dockerfile -t $(IMAGE) --load $(IMAGE_NAME)
+	mapfile -t lines <<< "$$args"; \
+	docker buildx build "$${lines[@]/#/--build-arg=}" --build-arg LARADOCK_PHP_VERSION=$(PHP_VERSION) -f $(IMAGE_NAME)/Dockerfile -t $(IMAGE) --load $(IMAGE_NAME)
 
 test-local: build-local ## Build-local, then smoke-test that image
 	docker run --rm $(IMAGE) php -v

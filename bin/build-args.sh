@@ -12,18 +12,22 @@ set -euo pipefail
 
 ROOT_DIR="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 
+shopt -s extglob   # 下面用 +([[:space:]]) 剥行尾空白
+
 declare -A args=()
 order=()
 for f in "${ROOT_DIR}/.env.laradock" "${ROOT_DIR}/.env.laradock.preference"; do
   [[ -f "${f}" ]] || continue
-  while IFS= read -r line; do
+  # `|| [[ -n ${line} ]]`：preference 是手改的，末尾可能没有换行，
+  # 只靠 read 的返回值会把最后一行丢掉。
+  while IFS= read -r line || [[ -n "${line}" ]]; do
     line="${line%%#*}"
-    line="$(printf '%s' "${line}" | sed -e 's/[[:space:]]*$//')"
+    line="${line%%+([[:space:]])}"
     [[ -z "${line}" ]] && continue
     name="${line%%=*}"
     value="${line#*=}"
     [[ -z "${value}" ]] && continue
-    [[ -z "${args[${name}]+x}" ]] && order+=("${name}")
+    [[ -v args["${name}"] ]] || order+=("${name}")
     args["${name}"]="${value}"
   done < "${f}"
 done
