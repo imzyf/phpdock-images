@@ -1,14 +1,42 @@
+# 手动把 laradock 的三个镜像（php-fpm / php-worker / workspace）发布到 Docker Hub。
+#
+# ── 整体结构 ────────────────────────────────────────────────────────────────
+# build（矩阵：image × 架构，各一个 job）→ merge（矩阵：image，各一个 job）
+#
+# 拆成两段的唯一目的是甩掉 QEMU。以前是一个 job 里用 buildx 同时构建 amd64 +
+# arm64，arm64 走 QEMU 模拟，慢 5-10 倍。现在两个架构各自跑在原生 runner 上
+# （arm64 用 GitHub 免费的 ubuntu-24.04-arm），构建完只按 digest 推上去，再由
+# merge job 合成多架构 manifest。这是 Docker 官方 multi-platform CI 文档的写法。
+#
+# ── 为什么必须 push-by-digest ───────────────────────────────────────────────
+# 两个架构在两台机器上并行跑，彼此看不到对方的结果，所以不能在 build 阶段就往同一
+# 个 tag 上推——后推的会直接覆盖先推的，tag 最后只剩一个架构。改成各自推成「无 tag
+# 的 manifest」，把 digest 通过 artifact 传给 merge job，由它一次性合并并打 tag。
+#
+# ── tag 策略 ───────────────────────────────────────────────────────────────
+# 每次发布写两个 tag，指向同一份 manifest：
+#   8.5-php-fpm-202607   带年月，不可变快照，用来锁版本和回滚
+#   8.5-php-fpm          滚动 tag，永远指向最新一版
+#
+# ── ⚠️ 已知问题：Docker Hub 网页看不到新 tag ────────────────────────────────
+# 这样推上去的 tag 在 Docker Hub 网页上**不会出现**：新 tag 完全不显示，滚动 tag
+# 的 digest 停在上一次用旧流程推的版本。但 registry 里一切正常，pull 和 compose
+# 都没问题——Hub 的 registry 存储和网页元数据库是两套独立系统，manifest-only 的
+# tag 推送（imagetools create 不上传任何 layer）不会更新后者。
+#
+# Docker 承认这是 bug 但挂在 backlog：docker/hub-feedback#2369。
+# 2026-07-29 那次发布验证过：推送后 10 小时，元数据 API 查新 tag 仍是 404，
+# 响应头 cf-cache-status: DYNAMIC（没走缓存）——不是延迟，是永远不会自己出现。
+#
+# 所以判断发布成功与否**不要看网页**，用：
+#   docker buildx imagetools inspect yifans/phpdock:8.5-php-fpm
+# 不要为了迁就这个 UI bug 回退到 QEMU 单 job 构建，代价是慢 5-10 倍，不值得。
+
 name: laradock-image
 
 on:
+  # 只手动触发：构建很贵（三个镜像 × 两个架构），不该由 push 或定时任务带起来。
   workflow_dispatch: {}
-  # 开放调用，让 sync-upstream 能验证自己开的 PR 分支。
-  workflow_call:
-    inputs:
-      ref:
-        description: Git ref to build. Empty means the default checkout.
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -21,21 +49,21 @@ jobs:
     # arm64 跑在 GitHub 免费的原生 arm runner 上，不再用 QEMU 模拟（快 5-10 倍）。
     runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     env:
-      # 只有主仓库自己的手动运行才推送镜像；workflow_call 验证只构建、不发布。
-      PUBLISH: ${{ github.repository == 'imzyf/phpdock-images' && inputs.ref == '' }}
+      # 只有主仓库才推送镜像；fork 拿不到 Docker Hub secrets，只做构建验证。
+      # 下面所有推送相关的 step 都靠这个开关，fork 上会整段跳过而不是报错。
+      PUBLISH: ${{ github.repository == 'imzyf/phpdock-images' }}
+      # artifact 名字里不能有斜杠，所以要把 linux/arm64 压成 arm64 才能拼进去。
       PLATFORM_PAIR: ${{ matrix.platform == 'linux/arm64' && 'arm64' || 'amd64' }}
     strategy:
       matrix:
         php_version: ["8.5"]
         image: [php-fpm, php-worker, workspace]
-        # 发布时两个架构各自在原生机器上并行构建；验证运行只需要 amd64。
-        platform: ${{ fromJSON((github.repository == 'imzyf/phpdock-images' && inputs.ref == '') && '["linux/amd64","linux/arm64"]' || '["linux/amd64"]') }}
+        # 发布时两个架构各自在原生机器上并行构建；fork 只需要 amd64。
+        platform: ${{ fromJSON(github.repository == 'imzyf/phpdock-images' && '["linux/amd64","linux/arm64"]' || '["linux/amd64"]') }}
     steps:
       -
         name: Checkout
         uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref }}
       -
         # bin/build-args.sh 把 .env.laradock 与 .env.laradock.preference 合并成
         # 去重的 NAME=value 行（preference 胜出），与 make 消费的是同一份输出。
@@ -59,6 +87,11 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       -
         # 单架构镜像先按 digest 推送（不占用 tag），由 merge job 合成多架构 manifest。
+        # outputs 里三个参数的作用：
+        #   push-by-digest=true   推完不打 tag，只留 digest
+        #   name-canonical=true   把镜像名写进 manifest，让后面能按名字引用这个 digest
+        #   push=true             真的推到 registry
+        # fork 上换成 type=cacheonly：只验证 Dockerfile 能构建，产物直接丢掉。
         name: Build and push by digest
         id: build
         uses: docker/build-push-action@v7
@@ -67,11 +100,23 @@ jobs:
           file: ${{ matrix.image }}/Dockerfile
           platforms: ${{ matrix.platform }}
           outputs: ${{ env.PUBLISH == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.REGISTRY_IMAGE) || 'type=cacheonly' }}
+          # 关掉 provenance attestation。默认开着的话，单架构构建推出来的不是纯
+          # manifest 而是套了一层 index（platform 显示成 unknown/unknown），最终
+          # 合出来的多架构 index 里会多两个 attestation 条目。关掉之后 index 干净，
+          # 只剩 amd64 和 arm64 两项。
+          #
+          # ⚠️ 尚未验证：加这行本来是想试试能不能绕开上面说的 Docker Hub UI bug，
+          # 但按 2026-07-26（旧流程，同样带 attestation）那次 UI 显示正常来看，
+          # attestation 大概不是真正的原因。下次发布后对比一下网页有没有出现新 tag
+          # 就知道了；如果没用，这行留着也无害（index 更干净）。
+          provenance: false
           build-args: |
             ${{ steps.build-args.outputs.args }}
             LARADOCK_PHP_VERSION=${{ matrix.php_version }}
       -
-        # 用空文件的文件名传 digest，merge job 直接 glob 出来拼命令。
+        # 把 digest 编码进「空文件的文件名」而不是写进文件内容，这样 merge job 只要
+        # glob 一下目录就能拿到全部 digest，不用读文件也不用解析 JSON。
+        # 去掉 sha256: 前缀是因为冒号在文件名里不安全。
         name: Export digest
         if: env.PUBLISH == 'true'
         run: |
@@ -83,14 +128,18 @@ jobs:
         if: env.PUBLISH == 'true'
         uses: actions/upload-artifact@v7
         with:
+          # 名字里带上 image 和架构，merge job 才能按 image 精确 glob 出自己那两份。
           name: digests-${{ matrix.php_version }}-${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
-          path: ${{ runner.temp }}/digests/*
+          # 传空文件容易静默失败，所以显式要求「没文件就报错」，宁可这里炸掉也别让
+          # merge job 拿着不完整的 digest 列表去合出一个缺架构的 manifest。
           if-no-files-found: error
+          path: ${{ runner.temp }}/digests/*
+          # 只是 job 间传值，用完即弃。
           retention-days: 1
 
   merge:
-    # 验证运行不推送任何 digest，没有可合并的东西。
-    if: github.repository == 'imzyf/phpdock-images' && inputs.ref == ''
+    # fork 上 build job 不推送任何 digest，没有可合并的东西，整个 job 跳过。
+    if: github.repository == 'imzyf/phpdock-images'
     needs: build
     runs-on: ubuntu-latest
     strategy:
@@ -103,7 +152,9 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: ${{ runner.temp }}/digests
+          # 尾部的 * 收掉 -amd64 / -arm64 两份。
           pattern: digests-${{ matrix.php_version }}-${{ matrix.image }}-*
+          # 两份 artifact 解到同一个目录里（否则会各自带一层子目录，glob 就废了）。
           merge-multiple: true
       -
         name: Set up Docker Buildx
@@ -115,12 +166,19 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       -
-        # 两个 tag 指向同一份 manifest：带年月的是不可变快照，不带的滚动指向最新一版。
+        # 把两个单架构 digest 合成一份多架构 manifest list，一次打上两个 tag。
+        # 一条 imagetools create 同时给两个 tag，保证它们必定指向同一份 manifest，
+        # 不会出现「快照和滚动 tag 内容不一致」。
         name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
         run: |
           base="${REGISTRY_IMAGE}:${{ matrix.php_version }}-${{ matrix.image }}"
+          # 用 UTC 取年月，避免跨时区在月底那天算出不同的月份。
           dated="${base}-$(date -u +%Y%m)"
+          # 目录里的文件名就是 digest（见 build job 的 Export digest），glob 出来
+          # 拼成 repo@sha256:xxx 的引用列表喂给 imagetools。
           mapfile -t refs < <(printf "${REGISTRY_IMAGE}@sha256:%s\n" *)
           docker buildx imagetools create -t "$dated" -t "$base" "${refs[@]}"
+          # 立刻回读一次：这是唯一可信的发布验证（Docker Hub 网页不可信，见文件头）。
+          # 输出里应该恰好有 amd64 和 arm64 两个平台条目。
           docker buildx imagetools inspect "$base"
