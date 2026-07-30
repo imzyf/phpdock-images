@@ -26,22 +26,24 @@ Apple Silicon 上不用等 20 分钟本地构建，也不用维护一个 laradoc
   分支、同步目录、排除路径全部集中在 `bin/.sync-config.sh` 一个文件里——改掉它，
   同一套机制就能跟踪另一个项目。
 
-- **把配置面生成出来。** laradock 三个 Dockerfile 一共有 151 个构建 `ARG`。
-  `bin/extract-env.sh` 把它们抽成 `.env.laradock` 里的 `NAME=default` 行，按镜像
-  分组、跨 Dockerfile 重名去重。这是**生成文件，不要手改**。
+- **把配置面生成出来。** laradock 三个 Dockerfile 完全靠构建 `ARG` 配置。
+  `bin/extract-env.sh` 把它们抽成 `.env.laradock` 里的 151 行 `NAME=default`，
+  按镜像分组、跨 Dockerfile 重名去重。这是**生成文件，不要手改**。
 
-- **自己的选择只占 18 行。** `.env.laradock.preference` 是唯一手工维护的配置，
+- **自己的选择只占 19 行。** `.env.laradock.preference` 是唯一手工维护的配置，
   只写本项目覆盖的那些 ARG。「我到底改了原版 laradock 的什么？」永远是一屏能读完
   的一个文件。
 
-- **只有一个合并点，local 和 CI 不会走偏。** `bin/build-args.sh` 把上面两个文件
-  合并成去重后的 `NAME=value` 行（preference 优先，空值丢弃）。`make build-local`
-  和 CI workflow 消费的是同一份输出，所以本地构建和推上去的镜像用的是完全相同的
-  构建参数。
+- **只有一个合并点，而且有测试守着。** `bin/build-args.sh` 把上面两个文件合并成
+  去重后的 `NAME=value` 行（preference 优先，空值丢弃），是构建参数唯一的组装处。
+  `make test-args` 把它的行为钉住：合并规则、解析的边界情况，以及「输出的每个名字
+  都真的是某个 Dockerfile 的 `ARG`」。CI 在构建前先跑它，所以合并逻辑悄悄坏掉不会
+  一路带到发布出去的镜像里。
 
-- **两个每周任务。** `sync-upstream` 跑同步，只在上游真的变了时才开 PR；
-  `laradock-image` 重建三个镜像并推到 Docker Hub。同步 PR 故意留给人工 merge——
-  这个 review 步骤正是你判断「上游新增的 ARG 需不需要覆盖」的地方。
+- **每周同步，手动发布。** `sync-upstream` 每周一跑，只在上游真的变了时才开 PR。
+  `laradock-image` 只能手动触发：先 merge 同步 PR，再自己去点构建。这两步故意都留给
+  人——review diff 正是你判断「上游新增的 ARG 需不需要覆盖」的地方，而三个镜像
+  × 两个架构太贵，不该被顺手带起来。
 
 本地可用的 target 见 `make help`。
 

@@ -1,30 +1,12 @@
-# 下面用到数组，需要 bash（macOS 的 /bin/sh 不够）。
-# 多条命令的 recipe 开头显式写 set -e，而不是用 .SHELLFLAGS：
-# macOS 自带 GNU Make 3.81 会忽略 .SHELLFLAGS（3.82+ 才支持），
-# 依赖它会变成 CI 上失败、本机不失败。
-SHELL := bash
-
-PHP_VERSION ?= 8.5
-IMAGE_NAME  ?= php-fpm
-IMAGE       ?= yifans/phpdock:local-$(PHP_VERSION)-$(IMAGE_NAME)
-
 .DEFAULT_GOAL := help
 
-SHELL_SCRIPTS := bin/.sync-config.sh $(wildcard bin/*.sh)
-
-.PHONY: help lint sync sync-force build-local test-local
+.PHONY: help sync sync-force test-args
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} \
 		/^##@/ {printf "\n\033[1m%s\033[0m\n", substr($$0, 5); next} \
 		/^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' \
 		$(MAKEFILE_LIST)
-
-##@ Lint
-
-# -x 跟进 source 的文件；bin/*.sh 匹配不到点开头的 .sync-config.sh，单独列出。
-lint: ## Run shellcheck over every shell script
-	shellcheck -x $(SHELL_SCRIPTS)
 
 ##@ Sync
 
@@ -35,22 +17,7 @@ sync: ## Pull latest files from upstream, then regenerate .env.laradock
 sync-force: ## Sync from upstream, ignoring the clone cache
 	LCC_SYNC_CACHE_TTL=0 make sync
 
-##@ Build
+##@ Test
 
-# bin/build-args.sh 把 .env.laradock 与 .env.laradock.preference 合并成去重的
-# NAME=value 行（CI 消费的是同一份输出）。读进数组再整体加 --build-arg= 前缀，
-# 带空格的值（如 ADDITIONAL_LOCALES）才能作为单个参数传下去。
-# 先赋值给变量而不是 < <(...) 读：进程替换的退出码 set -e 看不见，
-# build-args.sh 挂掉时会静默地不带任何 --build-arg 就开始构建。
-build-local: ## Build ONE image locally (IMAGE_NAME=php-fpm|php-worker|workspace, PHP_VERSION=)
-	@set -e; \
-	args="$$(bin/build-args.sh)"; \
-	mapfile -t lines <<< "$$args"; \
-	docker buildx build "$${lines[@]/#/--build-arg=}" --build-arg LARADOCK_PHP_VERSION=$(PHP_VERSION) -f $(IMAGE_NAME)/Dockerfile -t $(IMAGE) --load $(IMAGE_NAME)
-
-test-local: build-local ## Build-local, then smoke-test that image
-	docker run --rm $(IMAGE) php -v
-ifeq ($(IMAGE_NAME),php-fpm)
-	docker run --rm $(IMAGE) php -m | grep -qi pgsql && echo "pgsql: ok"
-	docker run --rm $(IMAGE) php -m | grep -qi redis && echo "redis: ok"
-endif
+test-args: ## Check that build-args.sh still merges the env files correctly
+	bin/test-build-args.sh

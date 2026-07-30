@@ -65,6 +65,12 @@ jobs:
         name: Checkout
         uses: actions/checkout@v7
       -
+        # 先验证 build-args.sh 本身，再让下一步消费它的输出。合并逻辑悄悄坏掉的后果是
+        # 带着错的（甚至空的）build args 构建成功并发布，比在这里炸掉难查得多。
+        # 一秒就跑完，所以不值得为「每个矩阵 job 重复跑」单独拆一个 job 出来。
+        name: Test build-args.sh
+        run: bin/test-build-args.sh
+      -
         # bin/build-args.sh 把 .env.laradock 与 .env.laradock.preference 合并成
         # 去重的 NAME=value 行（preference 胜出），与 make 消费的是同一份输出。
         name: Merge build args from .env.laradock + .env.laradock.preference
