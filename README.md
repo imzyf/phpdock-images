@@ -21,12 +21,11 @@ No 20-minute local build on Apple Silicon, and no laradock fork to maintain.
 The interesting part is not the images — it's a reusable pattern for tracking
 upstream Dockerfiles you don't own:
 
-- **Mirror, don't fork.** `bin/sync-upstream.sh` refreshes only the files
-  upstream owns (`php-fpm/`, `php-worker/`, `workspace/`) from a cached sparse
-  clone. Files you add beside them are never touched, so each sync lands as a
-  reviewable `git diff`. Upstream repo, branch, synced dirs and excluded paths
-  all live in one file: `bin/.sync-config.sh` — point it elsewhere and the same
-  machinery tracks a different project.
+- **Mirror, don't fork.** `bin/sync-upstream.sh` refreshes only the dirs
+  upstream owns (`php-fpm/`, `php-worker/`, `workspace/`); files you add are
+  never touched, so each sync lands as a reviewable `git diff`. Upstream repo,
+  branch, synced dirs and excluded paths all live in `bin/.sync-config.sh` —
+  point it elsewhere to track a different project.
 
 - **Generate the config surface.** laradock's three Dockerfiles are configured
   entirely through build `ARG`s. `bin/extract-env.sh` scrapes them into
@@ -38,18 +37,17 @@ upstream Dockerfiles you don't own:
   I change from stock laradock?" stays a file you can read in one screen.
 
 - **One merge point, and it's tested.** `bin/build-args.sh` merges the two files
-  into deduped `NAME=value` lines (preference wins, empty values dropped) — the
-  single place build args are assembled. `make test-args` pins that behaviour:
-  the merge rules, the parsing edge cases, and a check that every emitted name
-  is a real Dockerfile `ARG`. CI runs it before the build, so a silent merge bug
-  can't reach a published image.
+  into deduped `NAME=value` (preference wins, empty values dropped) — the single
+  place build args are assembled. `make test-args` pins that behaviour: merge
+  rules, parsing edges, and a check that every emitted name is a real Dockerfile
+  `ARG`. CI runs it before the build, so a broken merge can't reach a published
+  image.
 
 - **Weekly sync, manual publish.** `sync-upstream` runs every Monday and opens a
-  PR only when upstream actually changed. `laradock-image` is manual-only: merge
-  the sync PR, then trigger the build yourself. Both steps are deliberately
-  human — reviewing the diff is where you decide whether a new upstream ARG
-  deserves an override, and three images across two architectures is too
-  expensive to kick off by accident.
+  PR only when upstream actually changed; `laradock-image` is manual-only. The
+  human step is deliberate: reviewing the diff is where you decide whether a new
+  upstream ARG deserves an override, and three images across two architectures
+  is too expensive to kick off by accident.
 
 Run `make help` for the local targets.
 

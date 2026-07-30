@@ -20,11 +20,10 @@ Apple Silicon 上不用等 20 分钟本地构建，也不用维护一个 laradoc
 
 真正有意思的不是这几个镜像，而是这套「跟踪别人的 Dockerfile」的可复用做法：
 
-- **镜像上游，而不是 fork。** `bin/sync-upstream.sh` 只刷新上游拥有的文件
-  （`php-fpm/`、`php-worker/`、`workspace/`），克隆用 sparse + 本地缓存。你在旁边
-  新增的文件永不被动，所以每次同步都落成一份可 review 的 `git diff`。上游仓库、
-  分支、同步目录、排除路径全部集中在 `bin/.sync-config.sh` 一个文件里——改掉它，
-  同一套机制就能跟踪另一个项目。
+- **镜像上游，而不是 fork。** `bin/sync-upstream.sh` 只刷新上游拥有的目录
+  （`php-fpm/`、`php-worker/`、`workspace/`），你新增的文件永不被动，所以每次同步
+  都落成一份可 review 的 `git diff`。上游仓库、分支、同步目录、排除路径全在
+  `bin/.sync-config.sh` 里。
 
 - **把配置面生成出来。** laradock 三个 Dockerfile 完全靠构建 `ARG` 配置。
   `bin/extract-env.sh` 把它们抽成 `.env.laradock` 里的 151 行 `NAME=default`，
@@ -35,15 +34,13 @@ Apple Silicon 上不用等 20 分钟本地构建，也不用维护一个 laradoc
   的一个文件。
 
 - **只有一个合并点，而且有测试守着。** `bin/build-args.sh` 把上面两个文件合并成
-  去重后的 `NAME=value` 行（preference 优先，空值丢弃），是构建参数唯一的组装处。
-  `make test-args` 把它的行为钉住：合并规则、解析的边界情况，以及「输出的每个名字
-  都真的是某个 Dockerfile 的 `ARG`」。CI 在构建前先跑它，所以合并逻辑悄悄坏掉不会
-  一路带到发布出去的镜像里。
+  去重后的 `NAME=value`（preference 优先，空值丢弃），是构建参数唯一的组装处。
+  `make test-args` 钉住它的行为——合并规则、解析边界，以及每个输出名字都真是某个
+  Dockerfile 的 `ARG`。CI 在构建前先跑，坏掉的合并逻辑到不了发布的镜像。
 
-- **每周同步，手动发布。** `sync-upstream` 每周一跑，只在上游真的变了时才开 PR。
-  `laradock-image` 只能手动触发：先 merge 同步 PR，再自己去点构建。这两步故意都留给
-  人——review diff 正是你判断「上游新增的 ARG 需不需要覆盖」的地方，而三个镜像
-  × 两个架构太贵，不该被顺手带起来。
+- **每周同步，手动发布。** `sync-upstream` 每周一跑，上游真变了才开 PR；
+  `laradock-image` 只能手动触发。留人工是有意的：review diff 正是你判断新增 ARG
+  要不要覆盖的地方，而三镜像 × 双架构太贵，不该被顺手带起来。
 
 本地可用的 target 见 `make help`。
 

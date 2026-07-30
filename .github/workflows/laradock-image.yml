@@ -18,19 +18,10 @@
 #   8.5-php-fpm-202607   带年月，不可变快照，用来锁版本和回滚
 #   8.5-php-fpm          滚动 tag，永远指向最新一版
 #
-# ── ⚠️ 已知问题：Docker Hub 网页看不到新 tag ────────────────────────────────
-# 这样推上去的 tag 在 Docker Hub 网页上**不会出现**：新 tag 完全不显示，滚动 tag
-# 的 digest 停在上一次用旧流程推的版本。但 registry 里一切正常，pull 和 compose
-# 都没问题——Hub 的 registry 存储和网页元数据库是两套独立系统，manifest-only 的
-# tag 推送（imagetools create 不上传任何 layer）不会更新后者。
-#
-# Docker 承认这是 bug 但挂在 backlog：docker/hub-feedback#2369。
-# 2026-07-29 那次发布验证过：推送后 10 小时，元数据 API 查新 tag 仍是 404，
-# 响应头 cf-cache-status: DYNAMIC（没走缓存）——不是延迟，是永远不会自己出现。
-#
-# 所以判断发布成功与否**不要看网页**，用：
-#   docker buildx imagetools inspect yifans/phpdock:8.5-php-fpm
-# 不要为了迁就这个 UI bug 回退到 QEMU 单 job 构建，代价是慢 5-10 倍，不值得。
+# ── Docker Hub 网页显示 ────────────────────────────────────────────────────
+# imagetools create 配上 attestation，tag 会进不了 Hub 的网页和元数据 API（registry
+# 里一切正常）。build 步骤加 provenance: false 就好了，2026-07-30 验证过，别删。
+# 验证发布只看 registry：docker buildx imagetools inspect yifans/phpdock:8.5-php-fpm
 
 name: laradock-image
 
@@ -106,15 +97,9 @@ jobs:
           file: ${{ matrix.image }}/Dockerfile
           platforms: ${{ matrix.platform }}
           outputs: ${{ env.PUBLISH == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.REGISTRY_IMAGE) || 'type=cacheonly' }}
-          # 关掉 provenance attestation。默认开着的话，单架构构建推出来的不是纯
-          # manifest 而是套了一层 index（platform 显示成 unknown/unknown），最终
-          # 合出来的多架构 index 里会多两个 attestation 条目。关掉之后 index 干净，
-          # 只剩 amd64 和 arm64 两项。
-          #
-          # ⚠️ 尚未验证：加这行本来是想试试能不能绕开上面说的 Docker Hub UI bug，
-          # 但按 2026-07-26（旧流程，同样带 attestation）那次 UI 显示正常来看，
-          # attestation 大概不是真正的原因。下次发布后对比一下网页有没有出现新 tag
-          # 就知道了；如果没用，这行留着也无害（index 更干净）。
+          # 关掉 provenance attestation：开着的话单架构构建会多套一层 index
+          # （platform 显示成 unknown/unknown），而且 tag 不进 Docker Hub 网页
+          # （见文件头）。别删。
           provenance: false
           build-args: |
             ${{ steps.build-args.outputs.args }}
