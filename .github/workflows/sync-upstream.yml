@@ -19,13 +19,13 @@ jobs:
         name: Checkout
         uses: actions/checkout@v7
       -
-        # CI 每次都是干净 runner，克隆缓存必然是冷的，用 sync-force 把这点写明。
+        # CI 每次都是干净 runner，克隆缓存必然是冷的，用 LCC_SYNC_CACHE_TTL=0 把这点写明。
         # 同步完顺手记下上游 commit，供 PR 正文追溯版本。
         name: Sync files from laradock/laradock
         id: sync
         run: |
-          make sync-force
-          echo "upstream-commit=$(git -C bin/.cache/upstream rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          LCC_SYNC_CACHE_TTL=0 make sync
+          echo "upstream-commit=$(git -C .github/scripts/.cache/upstream rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       -
         # 只有 make sync 产生 diff 时才开（或更新）PR，否则什么都不做。
         # 用的是默认 GITHUB_TOKEN，所以这个 PR 不产生任何事件。

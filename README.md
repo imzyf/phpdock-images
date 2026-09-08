@@ -1,57 +1,46 @@
-English · [中文](README.zh-CN.md)
+<h4 align="right"><strong>中文</strong> | <a href="./README.en.md">English</a></h4>
 
 # phpdock-images
 
-Prebuilt multi-arch (`linux/amd64` + `linux/arm64`) PHP 8.5 images from
-[laradock](https://github.com/laradock/laradock) — with PostgreSQL, Redis,
-ImageMagick and 14 more extensions already compiled in.
+基于 [laradock](https://github.com/laradock/laradock) 预构建的 PHP 8.5 多架构镜像
+（`linux/amd64` + `linux/arm64`），已编译好 PostgreSQL、Redis、ImageMagick 等
+扩展。
 
 ```bash
-docker pull yifans/phpdock:8.5-php-fpm          # rolling tag, always the newest build
-docker pull yifans/phpdock:8.5-php-fpm-202607   # year-month snapshot, never moves
+docker pull yifans/phpdock:8.5-php-fpm          # 滚动 tag，指向最新一版
+docker pull yifans/phpdock:8.5-php-fpm-202607   # 年月快照，内容不再变动
 ```
 
-`php-worker` and `workspace` follow the same tag scheme. Pin the dated tag in
-production.
+另有 `php-worker`、`workspace` 两个镜像，tag 规则相同。
 
-No 20-minute local build on Apple Silicon, and no laradock fork to maintain.
+Apple Silicon 上不用等 20 分钟本地构建，也不用维护一个 laradock fork。
 
-## How it works
+## 这个仓库怎么维护
 
-The interesting part is not the images — it's a reusable pattern for tracking
-upstream Dockerfiles you don't own:
+真正有意思的不是这几个镜像，而是这套「跟踪别人的 Dockerfile」的可复用做法：
 
-- **Mirror, don't fork.** `bin/sync-upstream.sh` refreshes only the dirs
-  upstream owns (`php-fpm/`, `php-worker/`, `workspace/`); files you add are
-  never touched, so each sync lands as a reviewable `git diff`. Upstream repo,
-  branch, synced dirs and excluded paths all live in `bin/.sync-config.sh` —
-  point it elsewhere to track a different project.
+- **镜像上游，而不是 fork。** `.github/scripts/sync-upstream.sh` 只刷新上游拥有
+  的目录（`php-fpm/`、`php-worker/`、`workspace/`），你新增的文件不会被改动，所以
+  每次同步都落成一份可 review 的 `git diff`。上游仓库、分支、同步目录、排除路径
+  全在 `.github/scripts/.sync-config.sh` 里，改成别的仓库就能跟踪别的项目。
 
-- **Generate the config surface.** laradock's three Dockerfiles are configured
-  entirely through build `ARG`s. `bin/extract-env.sh` scrapes them into
-  `.env.laradock` as 151 `NAME=default` lines, grouped per image and deduped
-  across Dockerfiles. It is generated — never hand-edit it.
+- **把配置面生成出来。** laradock 三个 Dockerfile 完全靠构建 `ARG` 配置。
+  `.github/scripts/extract-env.sh` 把它们抽成 `.env.laradock` 里的 151 行
+  `NAME=default`，按镜像分组、跨 Dockerfile 重名去重。这是**生成文件，不要手改**。
 
-- **Keep your choices in a 19-line diff.** `.env.laradock.preference` is the
-  only hand-maintained config: just the ARGs this project overrides. "What did
-  I change from stock laradock?" stays a file you can read in one screen.
+- **自己的选择只占 19 行。** `.env.laradock.preference` 是唯一手工维护的配置，
+  只写本项目覆盖的那些 ARG。「我到底改了原版 laradock 的什么？」永远是一屏能读完
+  的一个文件。
 
-- **One merge point, and it's tested.** `bin/build-args.sh` merges the two files
-  into deduped `NAME=value` (preference wins, empty values dropped) — the single
-  place build args are assembled. `make test-args` pins that behaviour: merge
-  rules, parsing edges, and a check that every emitted name is a real Dockerfile
-  `ARG`. CI runs it before the build, so a broken merge can't reach a published
-  image.
+- **只有一个合并点，而且有测试守着。** `.github/scripts/build-args.sh` 把上面两个
+  文件合并成去重后的 `NAME=value`（preference 优先，空值丢弃），是构建参数唯一的
+  组装处。
+  `make test-args` 把它的行为写成测试：合并规则、解析边界，以及每个输出的名字都
+  真是某个 Dockerfile 的 `ARG`。CI 在构建前先跑，坏掉的合并逻辑到不了发布的镜像。
 
-- **Weekly sync, manual publish.** `sync-upstream` runs every Monday and opens a
-  PR only when upstream actually changed; `laradock-image` is manual-only. The
-  human step is deliberate: reviewing the diff is where you decide whether a new
-  upstream ARG deserves an override, and three images across two architectures
-  is too expensive to kick off by accident.
-
-Run `make help` for the local targets.
-
-## Links
-
-- [Actions](https://github.com/imzyf/phpdock-images/actions/) ·
-  [Docker Hub tags](https://hub.docker.com/r/yifans/phpdock/tags)
+- **每周同步，手动发布。** `sync-upstream` 每周一跑，上游真变了才开 PR；
+  `laradock-image` 只能在 [Actions](https://github.com/imzyf/phpdock-images/actions/)
+  手动触发，该页也保留 `sync-upstream` 的运行记录。留人工是有意的：
+  review diff 正是你判断新增 ARG 要不要覆盖的地方，而三镜像 × 双架构太贵，
+  不该被顺手带起来。三个镜像当前可用的全部 tag 可在
+  [Docker Hub](https://hub.docker.com/r/yifans/phpdock/tags) 查看。

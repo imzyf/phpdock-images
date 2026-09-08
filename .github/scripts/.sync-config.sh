@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# bin/sync-upstream.sh 的共享配置（被 source 引入，而非执行）。
+# .github/scripts/sync-upstream.sh 的共享配置（被 source 引入，而非执行）。
 #
 # 变量都给 source 方用，单独 lint 这个文件必然报未使用。
 # shellcheck disable=SC2034

@@ -7,10 +7,10 @@
 # `git diff` 看到上游的更改，然后手动移植。
 #
 # 上游的克隆是稀疏的（仅限 SYNC_DIRS + SYNC_FILES），并在 CACHE_DIR 下
-# 被缓存 CACHE_TTL_SECONDS（默认 1 天），所以同一天重新运行会重用它。
+# 被缓存 CACHE_TTL_SECONDS（默认 1 小时），所以短时间内重新运行会重用它。
 # 删除 CACHE_DIR 或设置 LCC_SYNC_CACHE_TTL=0 来强制重新克隆。
 #
-# 使用方法：bin/sync-upstream.sh
+# 使用方法：.github/scripts/sync-upstream.sh
 #
 # 环境变量覆盖：
 #   LCC_SYNC_CACHE_DIR   缓存的上游克隆的位置
@@ -19,12 +19,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
-# shellcheck source=bin/.sync-config.sh
+ROOT_DIR="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+# shellcheck source=.github/scripts/.sync-config.sh
 source "${SCRIPT_DIR}/.sync-config.sh"
 
 CACHE_DIR="${LCC_SYNC_CACHE_DIR:-${SCRIPT_DIR}/.cache/upstream}"
-CACHE_TTL_SECONDS="${LCC_SYNC_CACHE_TTL:-86400}"
+CACHE_TTL_SECONDS="${LCC_SYNC_CACHE_TTL:-3600}"
 CACHE_MARKER="${CACHE_DIR}.last-clone"
 clone_dir="${CACHE_DIR}"
 
@@ -72,7 +72,7 @@ for dir in "${SYNC_DIRS[@]}"; do
   src="${clone_dir}/${dir}"
   # 配置里的目录在上游没了 = 同步已失效，直接失败，别留下过期的本地副本。
   if [[ ! -d "${src}" ]]; then
-    echo "!! ${dir} not found upstream - update SYNC_DIRS in bin/.sync-config.sh" >&2
+    echo "!! ${dir} not found upstream - update SYNC_DIRS in .github/scripts/.sync-config.sh" >&2
     exit 1
   fi
   entries=( "${src}"/* )
@@ -104,7 +104,7 @@ for entry in "${SYNC_FILES[@]}"; do
   src="${clone_dir}/${src_rel}"
   # 同 SYNC_DIRS：配置里的文件上游没了就是同步失效，直接失败。
   if [[ ! -f "${src}" ]]; then
-    echo "!! ${src_rel} not found upstream - update SYNC_FILES in bin/.sync-config.sh" >&2
+    echo "!! ${src_rel} not found upstream - update SYNC_FILES in .github/scripts/.sync-config.sh" >&2
     exit 1
   fi
   if [[ "${src_rel}" == "${dest_rel}" ]]; then
